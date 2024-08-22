@@ -5,12 +5,14 @@ import AnimationWrapper from '../common/page-animation';
 import InputBox from '../components/input.component';
 import googleIcon from "../imgs/google.png"
 import {Toaster,toast} from "react-hot-toast"
+import { storeInSession } from '../common/session';
 const userAuthForm = ({type}) => {
     const authForm = useRef();
   const userAuthThroughServer=(serverRoute,formData)=>{
         Axios.post(import.meta.env.VITE_SERVER_DOMAIN + serverRoute,formData)
         .then(({data})=>{
-            console.log(data)
+           storeInSession("user",JSON.stringify(data))
+           console.log(sessionStorage)
         }
             
         )
