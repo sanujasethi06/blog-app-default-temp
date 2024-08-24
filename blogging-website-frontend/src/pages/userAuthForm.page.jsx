@@ -1,18 +1,22 @@
 import React, { useRef } from 'react'
 import Axios from 'axios'
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import AnimationWrapper from '../common/page-animation';
 import InputBox from '../components/input.component';
 import googleIcon from "../imgs/google.png"
 import {Toaster,toast} from "react-hot-toast"
 import { storeInSession } from '../common/session';
+import { useContext } from 'react';
+import { UserContext } from '../App';
 const userAuthForm = ({type}) => {
     const authForm = useRef();
+    let {userAuth : {access_token},setUserAuth} = useContext(UserContext)
   const userAuthThroughServer=(serverRoute,formData)=>{
         Axios.post(import.meta.env.VITE_SERVER_DOMAIN + serverRoute,formData)
         .then(({data})=>{
            storeInSession("user",JSON.stringify(data))
-           console.log(sessionStorage)
+           setUserAuth(data)
+          
         }
             
         )
@@ -56,6 +60,7 @@ let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for pass
           
     }
   return (
+    access_token ? <Navigate to={"/"}/>:
     <AnimationWrapper keyValue={type}>
     <section className='h-cover flex items-center justify-center'>
         <Toaster/>
