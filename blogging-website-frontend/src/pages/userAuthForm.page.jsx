@@ -8,6 +8,7 @@ import {Toaster,toast} from "react-hot-toast"
 import { storeInSession } from '../common/session';
 import { useContext } from 'react';
 import { UserContext } from '../App';
+import { authWithGoogle } from '../common/firebase';
 const userAuthForm = ({type}) => {
     const authForm = useRef();
     let {userAuth : {access_token},setUserAuth} = useContext(UserContext)
@@ -59,6 +60,20 @@ let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for pass
            userAuthThroughServer(serverRoute,formData);
           
     }
+    const handleGoogleAuth =(e)=>{
+        e.preventDefault();
+        authWithGoogle().then(user=>{
+           let serverRoute = "/google-auth";
+           let formData = {
+            access_token:user.access_token
+           }
+           userAuthThroughServer(serverRoute,formData)
+        })
+        .catch(err=>{
+            toast.error('trouble login through google');
+            return console.log(err)
+        })
+    }
   return (
     access_token ? <Navigate to={"/"}/>:
     <AnimationWrapper keyValue={type}>
@@ -98,7 +113,7 @@ let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for pass
                 <p className="">or</p>
                 <hr className="w-1/2 border-black" />
                </div>
-               <button className="btn-dark flex items-center justify-center gap-4 w-[90%] center">
+               <button className="btn-dark flex items-center justify-center gap-4 w-[90%] center" onClick={handleGoogleAuth}>
                 <img src={googleIcon} alt="" className="w-5" />
                 Continue with google
                </button>
