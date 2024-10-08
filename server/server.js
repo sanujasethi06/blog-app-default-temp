@@ -5,17 +5,67 @@ import bcrypt from 'bcrypt';
 import User from "./Schema/User.js"
 import { nanoid } from 'nanoid';
 import jwt from 'jsonwebtoken'
+import cors from 'cors';
+import admin from 'firebase-admin'
+import serviceAccountKey from './react-blog-project-mern-firebase-adminsdk-3u7yv-f65f3ebb18.json' assert{type:"json"}
+import {getAuth} from 'firebase-admin/auth'
+import aws from 'aws-sdk'
+import Blog from './Schema/Blog.js'
+
 
 const server= express();
 let PORT = 3000;
 
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccountKey)
+})
+
 let emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/; // regex for email
 let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for password
 
+
 server.use(express.json());
+// server.use((req, res, next) => {
+//     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+//     next();
+// });
+
+server.use(cors());
 mongoose.connect(process.env.DB_LOCATION,{
     autoIndex:true
 });
+
+const s3=new aws.S3({
+    region:'eu-north-1',
+    accessKeyId:process.env.AWS_ACCESS_KEY,
+    secretAccessKey:process.env.AWS_SECRET_ACCESS_KEY
+    
+})
+const generateUploadURL=async ()=>{
+    const date=new Date();
+    const imageName=`${nanoid()}-${date.getTime()}.jpeg`;
+   return await s3.getSignedUrlPromise('putObject',{
+        Bucket:'blogging-mern-project',
+        Key:imageName,
+        Expires:1000,
+        ContentType:"image/jpeg"
+    })
+}
+const verifyJWT =(req,res,next)=>{
+const authHeader =req.headers['authorization'];
+const token= authHeader && authHeader.split(" ")[1];
+
+if(token==null){
+    return res.status(401).json({error: "No access token"})
+}
+jwt.verify(token,process.env.SECRET_ACCESS_KEY, (err,user)=>{
+    if(err){
+        return res.status(403).json({error:"Access token is invalid"})
+    }
+    req.user=user.id;
+    next();
+})
+}
 
 const formDatatoSend = (user)=>{
 
@@ -44,6 +94,16 @@ mongoose.connection.on("connected", (err, res) => {
   console.log("mongoose is connected")
 
 })
+
+
+//upload image url route
+server.get('/get-upload-url',(req,res)=>{
+    generateUploadURL().then(url=>res.status(200).json({uploadURL:url})).catch(err=>{
+        console.log(err.message);
+        return res.status(500).json({error:err.message})
+    })
+})
+
 server.post("/signup",(req,res)=>{
    let {fullname,email,password} = req.body;
 
@@ -107,6 +167,101 @@ server.post("/signin",(req,res)=>{
         return res.status(500).json({"error":err.message})
     })
 })
+
+server.post("/google-auth", async (req, res) => {
+    try {
+        const { access_token } = req.body;
+        
+
+        if (typeof access_token !== "string") {
+            return res.status(400).json({ error: "Invalid access token" });
+        }
+
+        const decodedUser = await getAuth().verifyIdToken(access_token);
+
+        let { email, name, picture } = decodedUser;
+        picture = picture.replace("s96-c", "s384-c");
+
+        let user = await User.findOne({ "personal_info.email": email })
+                             .select("personal_info.fullname personal_info.username personal_info.profile_img google_auth");
+                             console.log(user)
+
+        if (user) {
+            if (!user.google_auth) {
+                return res.status(403).json({
+                    "error": "This email was signed up without Google. Please log in with a password to access the account."
+                });
+            }
+        } else {
+            let username = await generateUsername(email);
+
+            user = new User({
+                personal_info: {
+                    fullname: name,
+                    email,
+                    profile_img: picture,
+                    username
+                },
+                google_auth: true
+            });
+
+            await user.save();
+        }
+
+        return res.status(200).json(formDatatoSend(user));
+    } catch (err) {
+        console.error("Error during Google authentication:", err);
+        return res.status(500).json({
+            "error": "Failed to authenticate you with Google. Try with some other account or check your network connection."
+        });
+    }
+});
+server.post('/create-blog',verifyJWT,(req,res)=>{
+    let authorId= req.user;
+    let {title, desc , banner, tags,content,draft} = req.body;
+
+
+    if(!title.length){
+        return res.status(403).json({error:"You must provide a title to publish the blog"})
+    }
+    if(!desc.length){
+        return res.status(403).json({error:"You must provide blog description under 200 characters"});
+
+    }
+    if(!banner.length){
+        return res.status(403).json({error:"You must provide banner to publish it"});
+        
+    }
+    if(!content.blocks.length){
+        return res.status(403).json({error: "There must be some blog content to publish it"})
+    }
+    if(!tags.length || tags.length >10){
+        return res.status(403).json({error: "Provide tags in order to publish the blog, Maximum 10"})
+    }
+    tags= tags.map(tag=> tag.toLowerCase());
+
+    let blog_id = title.replace(/[^a-zA-Z0-9]/g,' ').replace(/\s+/g,"-").trim() + nanoid();
+
+    let blog = new Blog({
+        title,desc,banner,content,tags,author:authorId,blog_id,draft:Boolean(draft)
+    })
+    blog.save().then(blog=>{
+        let incrementVal = draft? 0:1;
+         User.findOneAndUpdate({_id:authorId},{$inc:{"account_info.total_posts":incrementVal},$push:{"blogs":blog._id}})
+         .then(user=>{
+            return res.status(200).json({id:blog.blog_id})
+         })
+         .catch(err=>{
+            return res.status(500).json({error:"Failed to update total posts number"})
+         })
+    })
+    .catch(err=>{
+        return res.status(500).json({error:err.message})
+    })
+
+})
+
 server.listen(PORT,()=>{
    console.log( 'listening on port->',PORT)
 });
+
